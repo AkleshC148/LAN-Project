@@ -36,48 +36,6 @@ A **LAN-based real-time voice and video calling web application** using **React*
 - **Real-time Comm:** WebRTC (for media), Socket.IO (for signaling)
 - **Deployment:** LAN server / Raspberry Pi (optional)
 
-## 🔧 Setup Instructions
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/your-username/lan-video-call-app.git
-cd lan-video-call-app
-```
-
-### 2. Install Dependencies
-
-**Client:**
-
-```bash
-cd client
-npm install
-```
-
-**Server:**
-
-```bash
-cd ../server
-npm install
-```
-
-### 3. Start the App
-
-Start the **backend signaling server**:
-
-```bash
-cd server
-npm run dev
-```
-
-Start the **frontend**:
-
-```bash
-cd ../client
-npm run dev
-```
-
-Visit `http://<LAN-IP>:5173` on any LAN-connected device.
 
 ## 🖥️ How It Works
 
