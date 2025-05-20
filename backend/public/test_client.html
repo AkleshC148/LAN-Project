@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>LAN Voice Call Test</title>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <script defer src="client.js"></script>
+</head>
+<body>
+    <h2>LAN Voice Call Test</h2>
+    <label>Your ID:</label>
+    <input type="text" id="yourId"><br>
+
+    <label>Receiver ID:</label>
+    <input type="text" id="receiverId"><br><br>
+
+    <button onclick="register()">Register</button>
+    <button onclick="startCall()">📞 Call</button>
+    <button onclick="acceptCall()">✅ Accept</button>
+    <button onclick="endCall()">🔚 End</button>
+    <button onclick="toggleMic()">🎙️ Mic On/Off</button>
+    <button onclick="toggleSpeaker()">🔇 Speaker On/Off</button>
+
+    <audio id="remoteAudio" autoplay></audio>
+</body>
+</html>

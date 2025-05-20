@@ -1,21 +1,25 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import io from "socket.io-client";
-
-const socket = io("http://192.168.102.99:3000", {
-  transports: ["websocket"],
-});
-
+// import { useNavigate } from "react-router-dom";
+import socket from "../utils/socket";
+// import { setLocalStream } from "../utils/callContext"; // Add this
+// import { setRemoteStream } from "../utils/callContext"; // Add this
 
 export const HomePage = () => {
   const [username, setUserName] = useState("");
   const [users, setUsers] = useState<any[]>([]);
-  const [peerConnection, setPeerConnection] = useState<RTCPeerConnection | null>(null);
-  const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+
+  const [incomingCall, setIncomingCall] = useState<any>(null);
   const [incomingCallOffer, setIncomingCallOffer] = useState<any>(null);
-  const localAudioRef = useRef<HTMLAudioElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const navigate = useNavigate();
+  const localAudioRef = useRef<HTMLAudioElement | null>(null);
+  const iceCandidatesBuffer = useRef<any[]>([]);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+const localVideoRef = useRef<HTMLVideoElement | null>(null);
+
+
+
+  // const navigate = useNavigate();
 
   useEffect(() => {
  
@@ -27,23 +31,52 @@ export const HomePage = () => {
 
     socket.on("incoming-call", async ({ from, offer }: any) => {
       console.log(`Incoming call from ${from}`);
-      setIncomingCallFrom(from);
+      console.log(`Offer in incoming call :-  ${offer}`);
+      if (!peerConnectionRef.current) {
+        createPeer(from); // 🛠️ Make sure we have a peer ready!
+      }
+    
+      setIncomingCall({ from, offer });
       setIncomingCallOffer(offer);
     });
 
     socket.on("call-answered", async ({ answer }: any) => {
-      if (peerConnection) {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+      const peer = peerConnectionRef.current;
+      if (peer) {
+        
+        if (peer.remoteDescription && peer.remoteDescription.type === "answer") {
+          console.warn("Remote description already set as answer. Skipping.");
+          return;
+        }
+        
+        try {
+          await peer.setRemoteDescription(new RTCSessionDescription(answer));
+
+          // Flush buffered ICE candidates HERE
+iceCandidatesBuffer.current.forEach(async (cand) => {
+  try {
+    await peer.addIceCandidate(new RTCIceCandidate(cand));
+  } catch (e) {
+    console.error("Failed to add buffered candidate", e);
+  }
+});
+iceCandidatesBuffer.current = [];
+        } catch (err) {
+          console.error("Failed to set remote answer:", err);
+        }
       }
     });
+    
 
-    socket.on("ice-candidate", async ({ candidate }: any) => {
-      if (peerConnection && candidate) {
+    socket.on("ice-candidate", async ({ candidate }) => {
+      if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
         try {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (err) {
-          console.error("Error adding ICE candidate:", err);
+          console.error("ICE add failed:", err);
         }
+      } else {
+        iceCandidatesBuffer.current.push(candidate);
       }
     });
 
@@ -52,15 +85,25 @@ export const HomePage = () => {
       socket.off("incoming-call");
       socket.off("call-answered");
       socket.off("ice-candidate");
-      socket.disconnect();
-      if (peerConnection) peerConnection.close();
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
+      
     };
-  }, [peerConnection]);
+  }, []);
 
   
 
   const createPeer = (remoteUserId: string) => {
-    const peer = new RTCPeerConnection();
+    const peer = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+      ]
+    });
+
+    const remoteStream = new MediaStream();
+    
 
     peer.onicecandidate = (event) => {
       if (event.candidate) {
@@ -68,13 +111,47 @@ export const HomePage = () => {
       }
     };
 
-    peer.ontrack = (event) => {
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = event.streams[0];
-      }
+    peer.onconnectionstatechange = () => {
+      console.log("Connection state:", peer.connectionState);
     };
+    
+    peer.onsignalingstatechange = () => {
+      console.log("Signaling state:", peer.signalingState);
+    };
+    
 
-    setPeerConnection(peer);
+    peer.ontrack = (event) => {
+      event.streams[0].getTracks().forEach((track)=>{
+        remoteStream.addTrack(track);
+      })
+    
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStream;
+        console.log("✅ Remote video attached");
+      }
+    
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = remoteStream;
+        remoteAudioRef.current.volume = 1;
+    
+        setTimeout(() => {
+          remoteAudioRef.current?.play().catch((err) => console.warn("⚠️ Audio play issue:", err));
+        }, 300);
+      }
+    
+      const audioTracks = remoteStream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        console.log("🎤 Remote audio track label:", audioTracks[0].label);
+      } else {
+        console.warn("🚫 No audio tracks in remote stream!");
+      }
+    
+      // setRemoteStream(remoteStream);
+    };
+    
+    
+
+    peerConnectionRef.current = peer;
     return peer;
   };
 
@@ -83,31 +160,123 @@ export const HomePage = () => {
       alert("Enter a valid Scholar ID");
       return;
     }
-    socket.emit("register", username);
+    socket.emit("register-user", username);
+    console.log("name sent")
   };
+
+  useEffect(()=>{
+     const setLocalMedia = async () => {
+    try {
+      const stream = await setupMedia();
+
+       if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+
+       if (localAudioRef.current) {
+        localAudioRef.current.srcObject = stream;
+        localAudioRef.current.muted = true; // Prevent echo
+        localAudioRef.current.play().catch(err => console.warn("Local audio play failed", err));
+      }
+    } catch (err) {
+      console.error("❌ Failed to access microphone:", err);
+      alert("Please allow microphone access");
+      throw err;
+    }// 👈 Do not attach it to an <audio> element
+  };
+ 
+    setLocalMedia();
+  },[])
+
+  const setupMedia = async () => {
+    if (!navigator.mediaDevices) {
+      alert("Your browser does not support audio calls.");
+      throw new Error("MediaDevices API not supported");
+    }
+  
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({  video: true, audio: true});
+      // setLocalStream(stream);
+      return stream;
+    } catch (err) {
+      console.error("❌ Failed to access microphone:", err);
+      alert("Please allow microphone access");
+      throw err;
+    }// 👈 Do not attach it to an <audio> element
+  };
+  
 
   const callUser = async (id: string) => {
-    console.log(`Calling user ${id}...`);
-    const peer = createPeer(id);
-    const offer = await peer.createOffer();
-    await peer.setLocalDescription(offer);
-    socket.emit("call-user", { to: id, offer });
-    navigate("/onCall");
-  };
+    try {
+      const stream = await setupMedia();
+      const peer = createPeer(id);
 
+         // 👉 Flush buffered ICE candidates
+    iceCandidatesBuffer.current.forEach(async (cand) => {
+      try {
+        await peer.addIceCandidate(new RTCIceCandidate(cand));
+      } catch (e) {
+        console.error("Failed to add buffered candidate", e);
+      }
+    });
+    iceCandidatesBuffer.current = [];
+  
+    stream.getAudioTracks().forEach(track => peer.addTrack(track, stream));
+    stream.getVideoTracks().forEach(track => peer.addTrack(track, stream));
+      
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      
+      socket.emit("call-user", { to: id, offer });
+      console.log("call request emitted");
+      // navigate("/onCall");
+    } catch (err) {
+      console.error("Failed to make call:", err);
+    }
+  };
+  
   const acceptCall = async (callerId: string) => {
     if (!incomingCallOffer) return;
-    console.log(`Accepting call from ${callerId}...`);
+  
+    try {
+      const stream = await setupMedia();
+      const peer = createPeer(callerId);
 
-    const peer = createPeer(callerId);
-    await peer.setRemoteDescription(new RTCSessionDescription(incomingCallOffer));
+      stream.getAudioTracks().forEach(track => peer.addTrack(track, stream));
+stream.getVideoTracks().forEach(track => peer.addTrack(track, stream));
 
-    const answer = await peer.createAnswer();
-    await peer.setLocalDescription(answer);
 
-    socket.emit("accept-call", { to: callerId, answer });
-    navigate("/onCall");
+      if (localAudioRef.current) {
+        localAudioRef.current.srcObject = stream;
+        localAudioRef.current.muted = true; // Prevent echo
+        localAudioRef.current.play().catch(err => console.warn("Local audio play failed", err));
+      }
+
+      console.log("Adding tracks for stream:", stream);
+
+      await peer.setRemoteDescription(new RTCSessionDescription(incomingCallOffer));
+
+      // Flush buffered ICE candidates HERE
+iceCandidatesBuffer.current.forEach(async (cand) => {
+  try {
+    await peer.addIceCandidate(new RTCIceCandidate(cand));
+  } catch (e) {
+    console.error("Failed to add buffered candidate", e);
+  }
+});
+iceCandidatesBuffer.current = [];
+      
+
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      socket.emit("accept-call", { to: incomingCall.from, answer });
+      // navigate("/onCall");
+      setIncomingCall(null); 
+    } catch (err) {
+      console.error("Failed to accept call:", err);
+    }
   };
+  
 
   return (
     <div className="bg-black min-h-screen overflow-hidden">
@@ -132,17 +301,23 @@ export const HomePage = () => {
         <h2 className="bg-white p-1 font-bold text-lg">Connected Users</h2>
         <ul className="text-white py-3 px-4 flex flex-col gap-3">
           {users.length > 0 ? (
-            users.map((user) => (
-              <li key={user.id} className="flex justify-between p-2 bg-gray-100 rounded-md font-serif text-purple-400">
-                {user.username}
-                {incomingCallFrom === user.id ? (
-                  <button onClick={() => acceptCall(user.id)} className="font-bold bg-blue-400 text-black rounded-md px-2 py-1">
+            users.map((userId) => (
+              <li key={userId} className="flex justify-between p-2 bg-gray-100 rounded-md font-serif text-purple-400">
+                {userId}
+                {incomingCall && incomingCall.from === userId ? (
+                  <div className="flex gap-2">
+                  <button onClick={() => acceptCall(userId)} className="font-bold bg-blue-400 text-black rounded-md px-2 py-1">
                     Answer
                   </button>
+                 
+                </div>
+                  
                 ) : 
-                  <button onClick={() => callUser(user.id)} className="font-bold bg-green-400 text-black rounded-md px-2 py-1">
+                <div className="flex">
+                  <button onClick={() => callUser(userId)} className="font-bold bg-green-400 text-black rounded-md px-2 py-1">
                     Call
                   </button>
+                </div>
                 }
               </li>
             ))
@@ -150,11 +325,21 @@ export const HomePage = () => {
             <li>No users connected</li>
           )}
         </ul>
-
-        <h2>Audio</h2>
-        <audio ref={localAudioRef} autoPlay muted />
-        <audio ref={remoteAudioRef} autoPlay />
       </div>
+      <>
+<audio ref={remoteAudioRef} autoPlay hidden  />
+<audio ref={localAudioRef} autoPlay hidden muted />
+<div className="flex gap-4 absolute top-80">
+  <div className="flex flex-col gap-2 bg-white p-2 rounded-md">
+    <div className="text-center font-bold">Local</div>
+  <video ref={localVideoRef} autoPlay  playsInline className="w-full h-auto" />
+  </div>
+  <div className="flex flex-col gap-2 bg-white p-2 rounded-">
+    <div className="text-center font-bold ">Remote</div>
+    <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-auto" />
+  </div>
+</div>
+</>
     </div>
   );
 };

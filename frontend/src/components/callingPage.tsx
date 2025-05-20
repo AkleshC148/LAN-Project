@@ -1,122 +1,175 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import io from "socket.io-client";
-
-const socket = io("http://192.168.102.99:3000", {
-    transports: ["websocket"],
-  });
-  
-
-
+import socket from "../utils/socket";
+import { localStream, remoteStream } from "../utils/callContext";
 
 export const CallingPage = () => {
-    const [muteClicked, setMuteClicked] = useState(false);
-    const [speakerClicked, setSpeakerClicked] = useState(false);
-    const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+    const [muteClicked, ] = useState(false);
+    const [speakerClicked, ] = useState(false);
+    // const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
     const [showVideoCall, setShowVideoCall] = useState(false);
     const [incomingCall, setIncomingCall] = useState(false);
     const peerConnection = useRef<RTCPeerConnection | null>(null);
+    const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+    const localAudioRef = useRef<HTMLAudioElement | null>(null);
     const navigate = useNavigate();
 
     // STEP 1: Setup Media and PeerConnection
-  useEffect(() => {
-    (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setMediaStream(stream);
+  // useEffect(() => {
+  //   (async () => {
+  //     try {
 
-        peerConnection.current = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  //        // Check browser support
+  //     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+  //       alert("Your browser does not support audio calls.");
+  //       return;
+  //     }
+
+  //       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  //       setMediaStream(stream);
+
+  //       peerConnection.current = new RTCPeerConnection({
+  //         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  //       });
+
+
+  //       stream.getTracks().forEach((track) => {
+  //         peerConnection.current?.addTrack(track, stream);
+  //       });
+
+  //       peerConnection.current.onicecandidate = (event) => {
+  //         if (event.candidate) {
+  //           socket.emit("ice-candidate", event.candidate);
+  //         }
+  //       };
+
+  //       peerConnection.current.ontrack = (event) => {
+  //         const remote = event.streams[0];
+  //         if (remoteAudioRef.current) {
+  //           remoteAudioRef.current.srcObject = remote;
+  //           remoteAudioRef.current
+  //     .play()
+  //     .then(() => {
+  //       console.log("🔊 Remote audio playing");
+  //     })
+  //         }
+  //       };
+  //     } catch (err) {
+  //       console.error("Error accessing media:", err);
+  //     }
+  //   })();
+
+  //   return () => {
+  //     peerConnection.current?.close();
+  //     socket.disconnect();
+  //   };
+  // }, []);
+
+    // useEffect(() => {
+    //     socket.on("incoming-call", () => {
+    //         setIncomingCall(true);
+    //     });
+    // }, []);
+
+
+    // useEffect(() => {
+    //     socket.on("ice-candidate", async (candidate) => {
+    //         if (peerConnection.current) {
+    //           try {
+    //             await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
+    //           } catch (err) {
+    //             console.error("Error adding received ICE candidate", err);
+    //           }
+    //         }
+    //       });
+    // }, []);
+
+    // useEffect(() => {
+    //   socket.on("call-made", async ({ offer }) => {
+    //     if (!peerConnection.current) return;
+    //     await peerConnection.current.setRemoteDescription(new RTCSessionDescription(offer));
+    //   });
+    
+    //   socket.on("call-accepted", async ({ answer }) => {
+    //     if (!peerConnection.current) return;
+    //     await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
+    //     setShowVideoCall(true);
+    //   });
+    
+    //   return () => {
+    //     socket.off("call-made");
+    //     socket.off("call-accepted");
+    //   };
+    // }, []);
+    
+    useEffect(() => {
+      const local = localStream.current;
+      const remote = remoteStream.current;
+    
+      if (localAudioRef.current && local) {
+        localAudioRef.current.srcObject = local;
+        localAudioRef.current.play().catch((err) => {
+          console.warn("Local audio playback failed", err);
         });
-
-        stream.getTracks().forEach((track) => {
-          peerConnection.current?.addTrack(track, stream);
-        });
-
-        peerConnection.current.onicecandidate = (event) => {
-          if (event.candidate) {
-            socket.emit("ice-candidate", event.candidate);
-          }
-        };
-
-        peerConnection.current.ontrack = (event) => {
-          const remoteStream = event.streams[0];
-          const remoteAudio = new Audio();
-          remoteAudio.srcObject = remoteStream;
-          remoteAudio.autoplay = true;
-          remoteAudio.play();
-        };
-      } catch (err) {
-        console.error("Error accessing media:", err);
       }
-    })();
-  }, []);
-
-    useEffect(() => {
-        socket.on("incoming-call", () => {
-            setIncomingCall(true);
+    
+      if (remoteAudioRef.current && remote) {
+        remoteAudioRef.current.srcObject = remote;
+        remoteAudioRef.current.play().catch((err) => {
+          console.warn("Remote audio playback failed", err);
         });
+      }
     }, []);
-
-
-    useEffect(() => {
-        socket.on("ice-candidate", async (candidate) => {
-            if (peerConnection.current) {
-              try {
-                await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
-              } catch (err) {
-                console.error("Error adding received ICE candidate", err);
-              }
-            }
-          });
-    }, []);
-
-   
+    
+    
+    
       
 
-    const toggleMute = () => {
-        if (mediaStream) {
-            const audioTrack = mediaStream.getAudioTracks()[0];
-            audioTrack.enabled = !audioTrack.enabled;
-            setMuteClicked(!muteClicked);
-        }
-    };
+    // const toggleMute = () => {
+    //     if (mediaStream) {
+    //         const audioTrack = mediaStream.getAudioTracks()[0];
+    //         audioTrack.enabled = !audioTrack.enabled;
+    //         setMuteClicked(!muteClicked);
+    //     }
+    // };
 
    
 
-    const toggleSpeaker = async () => {
-        try {
-          const audio = new Audio();
-          if (mediaStream) audio.srcObject = mediaStream;
-          await (audio as any).setSinkId(speakerClicked ? "default" : "speaker");
-          setSpeakerClicked(!speakerClicked);
-        } catch (err) {
-          console.error("Error switching audio output:", err);
-        }
-      };
+    // const toggleSpeaker = async () => {
+    //   try {
+    //     if (remoteAudioRef.current) {
+    //       await (remoteAudioRef.current as any).setSinkId(speakerClicked ? "default" : "speaker");
+    //       setSpeakerClicked(!speakerClicked);
+    //     }
+    //   } catch (err) {
+    //     console.error("Error switching audio output:", err);
+    //   }
+    // };
 
     const startVideoCall = async () => {
-        const offer = await peerConnection.current?.createOffer();
-        await peerConnection.current?.setLocalDescription(offer);
-      
-        socket.emit("call-user", { offer });
-      };
+      if (!peerConnection.current) return;
+  
+      const offer = await peerConnection.current.createOffer();
+      await peerConnection.current.setLocalDescription(offer);
+      socket.emit("call-user", { offer });
+    };
       
 
-      const acceptCall = async () => {
-        setIncomingCall(false);
-        const answer = await peerConnection.current?.createAnswer();
-        await peerConnection.current?.setLocalDescription(answer);
-        socket.emit("accept-call", { answer });
-        setShowVideoCall(true);
-      };
-
+    const acceptCall = async () => {
+      if (!peerConnection.current) return;
+  
+      const answer = await peerConnection.current.createAnswer();
+      await peerConnection.current.setLocalDescription(answer);
+      socket.emit("accept-call", { answer });
+      setIncomingCall(false);
+      setShowVideoCall(true);
+    };
     const rejectCall = () => {
         setIncomingCall(false);
     };
 
     const endCall = () => {
-        mediaStream?.getTracks().forEach(track => track.stop());
+        // mediaStream?.getTracks().forEach(track => track.stop());
         setShowVideoCall(false);
         if (peerConnection) {
             peerConnection.current?.close();;
@@ -144,7 +197,7 @@ export const CallingPage = () => {
 
                         <div className="flex justify-around w-full">
                             <button 
-                                onClick={toggleMute} 
+                                // onClick={toggleMute} 
                                 className={`flex flex-col items-center gap-1 p-2 rounded-lg ${muteClicked ? 'bg-gray-600' : 'bg-green-500'}`}>
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-8 h-8">
                                     <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 0 0 1.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06Z" />
@@ -153,7 +206,7 @@ export const CallingPage = () => {
                             </button>
 
                             <button 
-                                onClick={toggleSpeaker} 
+                                // onClick={toggleSpeaker} 
                                 className={`flex flex-col items-center gap-1 p-2 rounded-lg ${speakerClicked ? 'bg-gray-600' : 'bg-green-500'}`}>
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-8 h-8">
                                     <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 0 0 1.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06Z" />
@@ -175,6 +228,10 @@ export const CallingPage = () => {
                     </svg>
                 </button>
             </div>
+
+            <audio ref={localAudioRef} autoPlay muted />
+<audio ref={remoteAudioRef} autoPlay />
+
         </div>
     );
 };
